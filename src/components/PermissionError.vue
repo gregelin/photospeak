@@ -1,15 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-
-const props = defineProps<{
+defineProps<{
   error: string
 }>()
-
-const isPermissionError = computed(() =>
-  props.error.toLowerCase().includes('not authorized') ||
-  props.error.toLowerCase().includes('access denied') ||
-  props.error.toLowerCase().includes('permission')
-)
 </script>
 
 <template>

@@ -13,7 +13,6 @@ swift-helper/Package.resolved
 
 # macOS
 .DS_Store
-*.dmg
 
 # Logs
 *.log

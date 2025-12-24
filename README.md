@@ -2,6 +2,17 @@
 
 A native macOS Electron app that lets you browse your Apple Photos library and record voice audio associated with each photo.
 
+## Download
+
+Download the latest release from the [Releases page](https://github.com/gregelin/photospeak/releases).
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `PhotoSpeak-1.0.0-arm64.dmg` |
+| macOS (Apple Silicon) ZIP | `PhotoSpeak-1.0.0-arm64-mac.zip` |
+
+> **Note:** The app is not code-signed. On first launch, right-click the app and select "Open" to bypass Gatekeeper.
+
 ## Features
 
 - **Browse Apple Photos** - Access your entire Photos library including albums
@@ -10,6 +21,41 @@ A native macOS Electron app that lets you browse your Apple Photos library and r
 - **Record Audio** - Record voice memos while viewing a photo
 - **Playback** - Play back recorded audio with progress tracking
 - **Persistent Storage** - Audio associations are saved and persist across sessions
+
+## Setup
+
+1. **Install dependencies:**
+
+   ```bash
+   npm install
+   ```
+2. **Build the Swift helper:**
+
+   ```bash
+   cd swift-helper
+   swift build -c release
+   cd ..
+   ```
+3. **Grant permissions:**
+
+   - Photos: System Settings → Privacy & Security → Photos → Enable for Terminal/Electron
+   - Microphone: Will prompt on first recording
+
+## Development
+
+```bash
+npm run dev
+```
+
+This starts Vite dev server with hot reload and launches Electron.
+
+## Build
+
+```bash
+npm run build
+```
+
+Creates a distributable macOS app in the `dist/` folder (DMG and ZIP).
 
 ## Tech Stack
 
@@ -40,40 +86,6 @@ The app uses a Swift CLI helper to access Apple Photos via PhotoKit. Electron sp
 - macOS 13+ (Ventura or later)
 - Node.js 18+
 - Xcode Command Line Tools (for Swift)
-
-## Setup
-
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Build the Swift helper:**
-   ```bash
-   cd swift-helper
-   swift build -c release
-   cd ..
-   ```
-
-3. **Grant permissions:**
-   - Photos: System Settings → Privacy & Security → Photos → Enable for Terminal/Electron
-   - Microphone: Will prompt on first recording
-
-## Development
-
-```bash
-npm run dev
-```
-
-This starts Vite dev server with hot reload and launches Electron.
-
-## Build
-
-```bash
-npm run build
-```
-
-Creates a distributable macOS app in the `release/` folder.
 
 ## Project Structure
 
@@ -109,7 +121,9 @@ photospeak/
 ## How It Works
 
 ### Photos Access
+
 The Swift helper uses PhotoKit to:
+
 - List albums (`list-albums`)
 - Fetch photos with thumbnails (`list-photos`)
 - Get full-size images (`get-photo`)
@@ -117,12 +131,14 @@ The Swift helper uses PhotoKit to:
 Photos are returned as base64-encoded JPEG data.
 
 ### Audio Recording
+
 - Uses the browser's MediaRecorder API to capture audio
 - Records in WebM format
 - Audio files are stored in `~/Library/Application Support/photospeak/audio/`
 - Associations (photo ID → audio path) are stored in localStorage
 
 ### Security
+
 - Content Security Policy restricts resource loading
 - Audio files are loaded via IPC (not file:// URLs) for security
 - Photos access requires explicit user permission

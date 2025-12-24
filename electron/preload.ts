@@ -54,14 +54,3 @@ contextBridge.exposeInMainWorld('electron', {
   audio: audioAPI,
   app: appAPI
 })
-
-// Type declarations for renderer
-declare global {
-  interface Window {
-    electron: {
-      photos: typeof photosAPI
-      audio: typeof audioAPI
-      app: typeof appAPI
-    }
-  }
-}
