@@ -3,6 +3,12 @@ import { spawn, exec } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 
+// Disable all network features - this app works entirely offline
+app.commandLine.appendSwitch('disable-features', 'NetworkService')
+app.commandLine.appendSwitch('disable-background-networking')
+app.commandLine.appendSwitch('disable-component-update')
+app.commandLine.appendSwitch('disable-domain-reliability')
+
 let mainWindow: BrowserWindow | null = null
 
 // Path to Swift helper
@@ -68,11 +74,26 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      spellcheck: false  // Disable spellcheck (can make network requests)
     },
     titleBarStyle: 'hiddenInset',
     vibrancy: 'sidebar'
   })
+
+  // Block all external network requests
+  mainWindow.webContents.session.webRequest.onBeforeRequest(
+    { urls: ['http://*/*', 'https://*/*'] },
+    (details, callback) => {
+      // Allow localhost for dev server, block everything else
+      if (details.url.startsWith('http://localhost') || details.url.startsWith('http://127.0.0.1')) {
+        callback({})
+      } else {
+        console.log('Blocked network request:', details.url)
+        callback({ cancel: true })
+      }
+    }
+  )
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
