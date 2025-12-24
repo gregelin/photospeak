@@ -59,7 +59,7 @@ onMounted(async () => {
 
       <template v-else>
         <!-- Photo grid or detail view -->
-        <PhotoDetail v-if="photosStore.selectedPhoto" />
+        <PhotoDetail v-if="photosStore.selectedPhoto || photosStore.loadingDetail" />
         <PhotoGrid v-else />
       </template>
     </main>

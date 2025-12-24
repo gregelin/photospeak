@@ -10,13 +10,13 @@ function goBack() {
 </script>
 
 <template>
-  <div class="photo-detail" v-if="photosStore.selectedPhoto">
+  <div class="photo-detail" v-if="photosStore.selectedPhoto || photosStore.loadingDetail">
     <!-- Header -->
     <header class="detail-header">
       <button class="back-button" @click="goBack">
         ← Back
       </button>
-      <h2 class="filename">{{ photosStore.selectedPhoto.filename }}</h2>
+      <h2 class="filename">{{ photosStore.selectedPhoto?.filename || 'Loading...' }}</h2>
       <div class="spacer"></div>
     </header>
 
@@ -29,14 +29,14 @@ function goBack() {
           <span>Loading photo...</span>
         </div>
         <img
-          v-else-if="photosStore.selectedPhoto.imageBase64"
+          v-else-if="photosStore.selectedPhoto?.imageBase64"
           :src="`data:image/jpeg;base64,${photosStore.selectedPhoto.imageBase64}`"
           :alt="photosStore.selectedPhoto.filename"
         />
       </div>
 
       <!-- Audio panel -->
-      <AudioPanel />
+      <AudioPanel v-if="photosStore.selectedPhoto" />
     </div>
   </div>
 </template>
