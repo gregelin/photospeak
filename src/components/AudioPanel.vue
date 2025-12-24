@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
-import { usePhotosStore } from '../stores/photos'
+import { usePhotosStore, type AudioAssociation } from '../stores/photos'
 
 const photosStore = usePhotosStore()
 
+// Playback state
+const playingClipId = ref<string | null>(null)
 const audioRef = ref<HTMLAudioElement | null>(null)
-const isPlaying = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 
@@ -16,43 +17,15 @@ const mediaRecorder = ref<MediaRecorder | null>(null)
 const recordingInterval = ref<number | null>(null)
 const audioChunks = ref<Blob[]>([])
 
-const audioAssociation = computed(() =>
-  photosStore.selectedPhoto ? photosStore.audioAssociations.get(photosStore.selectedPhoto.id) : null
-)
+// Audio sources cache (clipId -> data URL)
+const audioSources = ref<Map<string, string>>(new Map())
 
-const hasAudio = computed(() => !!audioAssociation.value)
-
-// Audio source loaded via IPC (not file:// URL)
-const audioSrc = ref<string | null>(null)
-
-// Load audio when association changes
-watch(audioAssociation, async (newVal) => {
-  if (newVal?.audioPath) {
-    audioSrc.value = await window.electron.audio.loadFile(newVal.audioPath)
-  } else {
-    audioSrc.value = null
-  }
-}, { immediate: true })
-
-const audioFilename = computed(() => {
-  if (!audioAssociation.value) return ''
-  const parts = audioAssociation.value.audioPath.split('/')
-  return parts[parts.length - 1]
-})
+const clips = computed(() => photosStore.selectedPhotoAudio)
+const hasClips = computed(() => clips.value.length > 0)
 
 const progress = computed(() => {
   if (duration.value === 0) return 0
   return (currentTime.value / duration.value) * 100
-})
-
-const timeDisplay = computed(() => {
-  const format = (secs: number) => {
-    if (!isFinite(secs) || isNaN(secs)) return '--:--'
-    const m = Math.floor(secs / 60)
-    const s = Math.floor(secs % 60)
-    return `${m}:${s.toString().padStart(2, '0')}`
-  }
-  return `${format(currentTime.value)} / ${format(duration.value)}`
 })
 
 const recordingTimeDisplay = computed(() => {
@@ -60,6 +33,90 @@ const recordingTimeDisplay = computed(() => {
   const s = recordingTime.value % 60
   return `${m}:${s.toString().padStart(2, '0')}`
 })
+
+function formatTime(secs: number): string {
+  if (!isFinite(secs) || isNaN(secs)) return '--:--'
+  const m = Math.floor(secs / 60)
+  const s = Math.floor(secs % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatClipName(clip: AudioAssociation): string {
+  const date = new Date(clip.createdAt)
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
+
+// Load audio source for a clip
+async function loadAudioSource(clip: AudioAssociation): Promise<string | null> {
+  if (audioSources.value.has(clip.id)) {
+    return audioSources.value.get(clip.id)!
+  }
+  const src = await window.electron.audio.loadFile(clip.audioPath)
+  if (src) {
+    audioSources.value.set(clip.id, src)
+  }
+  return src
+}
+
+async function playClip(clip: AudioAssociation) {
+  // Stop current playback if any
+  if (audioRef.value) {
+    audioRef.value.pause()
+  }
+
+  const src = await loadAudioSource(clip)
+  if (!src) return
+
+  // Create new audio element
+  const audio = new Audio(src)
+  audioRef.value = audio
+  playingClipId.value = clip.id
+  currentTime.value = 0
+  duration.value = clip.duration || 0
+
+  audio.onloadedmetadata = () => {
+    if (isFinite(audio.duration) && !isNaN(audio.duration)) {
+      duration.value = audio.duration
+    }
+  }
+
+  audio.ontimeupdate = () => {
+    currentTime.value = audio.currentTime
+  }
+
+  audio.onended = () => {
+    playingClipId.value = null
+    currentTime.value = 0
+  }
+
+  audio.onpause = () => {
+    if (playingClipId.value === clip.id && audio.currentTime >= audio.duration - 0.1) {
+      playingClipId.value = null
+    }
+  }
+
+  audio.play()
+}
+
+function pauseClip() {
+  if (audioRef.value) {
+    audioRef.value.pause()
+    playingClipId.value = null
+  }
+}
+
+function toggleClip(clip: AudioAssociation) {
+  if (playingClipId.value === clip.id) {
+    pauseClip()
+  } else {
+    playClip(clip)
+  }
+}
 
 async function startRecording() {
   if (!photosStore.selectedPhoto) return
@@ -109,7 +166,6 @@ function stopRecording() {
 async function saveRecording(blob: Blob, durationSecs: number) {
   if (!photosStore.selectedPhoto) return
 
-  // Convert blob to base64 and send to main process
   const reader = new FileReader()
   reader.onloadend = async () => {
     const base64 = (reader.result as string).split(',')[1]
@@ -118,63 +174,34 @@ async function saveRecording(blob: Blob, durationSecs: number) {
   reader.readAsDataURL(blob)
 }
 
-function removeAudio() {
+function removeClip(clip: AudioAssociation) {
   if (!photosStore.selectedPhoto) return
-  if (audioRef.value) {
-    audioRef.value.pause()
+
+  // Stop if this clip is playing
+  if (playingClipId.value === clip.id) {
+    pauseClip()
   }
-  photosStore.removeAudio(photosStore.selectedPhoto.id)
+
+  // Remove from cache
+  audioSources.value.delete(clip.id)
+
+  photosStore.removeAudio(photosStore.selectedPhoto.id, clip.id)
 }
 
-function togglePlay() {
-  if (!audioRef.value) return
-  if (isPlaying.value) {
-    audioRef.value.pause()
-  } else {
-    audioRef.value.play()
-  }
-}
-
-function seek(e: MouseEvent) {
-  if (!audioRef.value || duration.value === 0) return
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const percent = x / rect.width
-  audioRef.value.currentTime = percent * duration.value
-}
-
-function onTimeUpdate() {
-  if (audioRef.value) {
-    currentTime.value = audioRef.value.currentTime
-  }
-}
-
-function onLoadedMetadata() {
-  if (audioRef.value) {
-    // Use stored duration if audio metadata is invalid
-    const metaDuration = audioRef.value.duration
-    if (isFinite(metaDuration) && !isNaN(metaDuration)) {
-      duration.value = metaDuration
-    } else if (audioAssociation.value?.duration) {
-      duration.value = audioAssociation.value.duration
-    }
-  }
-}
-
+// Reset state when switching photos
 watch(() => photosStore.selectedPhoto?.id, () => {
-  isPlaying.value = false
+  pauseClip()
   currentTime.value = 0
   duration.value = 0
-  // Stop any ongoing recording when switching photos
+  audioSources.value.clear()
+
   if (isRecording.value) {
     stopRecording()
   }
 })
 
 onUnmounted(() => {
-  if (audioRef.value) {
-    audioRef.value.pause()
-  }
+  pauseClip()
   if (isRecording.value) {
     stopRecording()
   }
@@ -183,7 +210,7 @@ onUnmounted(() => {
 
 <template>
   <aside class="audio-panel">
-    <h3 class="panel-title">Audio</h3>
+    <h3 class="panel-title">Audio Clips</h3>
 
     <!-- Recording in progress -->
     <div v-if="isRecording" class="recording-active">
@@ -197,45 +224,45 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- Has existing audio -->
-    <div v-else-if="hasAudio && audioSrc" class="audio-controls">
-      <audio
-        ref="audioRef"
-        :src="audioSrc"
-        @play="isPlaying = true"
-        @pause="isPlaying = false"
-        @ended="isPlaying = false"
-        @timeupdate="onTimeUpdate"
-        @loadedmetadata="onLoadedMetadata"
-      />
+    <template v-else>
+      <!-- Clips list -->
+      <div v-if="hasClips" class="clips-list">
+        <div
+          v-for="clip in clips"
+          :key="clip.id"
+          class="clip-item"
+          :class="{ playing: playingClipId === clip.id }"
+        >
+          <button class="play-btn" @click="toggleClip(clip)">
+            {{ playingClipId === clip.id ? '⏸' : '▶️' }}
+          </button>
 
-      <div class="audio-file">
-        <span class="audio-icon">🎵</span>
-        <span class="audio-name">{{ audioFilename }}</span>
+          <div class="clip-info">
+            <span class="clip-name">{{ formatClipName(clip) }}</span>
+            <span class="clip-duration">{{ formatTime(clip.duration || 0) }}</span>
+          </div>
+
+          <!-- Progress bar for playing clip -->
+          <div v-if="playingClipId === clip.id" class="mini-progress">
+            <div class="mini-progress-fill" :style="{ width: `${progress}%` }"></div>
+          </div>
+
+          <button class="delete-btn" @click="removeClip(clip)" title="Delete clip">
+            🗑️
+          </button>
+        </div>
       </div>
 
-      <div class="progress-bar" @click="seek">
-        <div class="progress-fill" :style="{ width: `${progress}%` }"></div>
+      <!-- Empty state -->
+      <div v-else class="no-clips">
+        <p>No audio clips</p>
       </div>
 
-      <div class="controls-row">
-        <button class="control-btn play-btn" @click="togglePlay">
-          {{ isPlaying ? '⏸' : '▶️' }}
-        </button>
-        <span class="time-display">{{ timeDisplay }}</span>
-        <button class="control-btn remove-btn" @click="removeAudio" title="Remove audio">
-          🗑️
-        </button>
-      </div>
-    </div>
-
-    <!-- No audio yet -->
-    <div v-else class="no-audio">
-      <p>No audio recorded</p>
+      <!-- Record button (always visible) -->
       <button class="record-btn" @click="startRecording">
-        🎙️ Record Audio
+        🎙️ Record New Clip
       </button>
-    </div>
+    </template>
   </aside>
 </template>
 
@@ -247,102 +274,116 @@ onUnmounted(() => {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
 
 .panel-title {
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 16px;
   color: var(--text-secondary);
 }
 
-.audio-controls {
+.clips-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
-.audio-file {
+.clip-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px;
   background: var(--bg-tertiary);
   border-radius: 8px;
+  position: relative;
 }
 
-.audio-icon {
-  font-size: 16px;
+.clip-item.playing {
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
-.audio-name {
+.play-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.play-btn:hover {
+  opacity: 0.9;
+}
+
+.clip-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clip-name {
   font-size: 13px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.progress-bar {
-  height: 6px;
+.clip-duration {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.mini-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
   background: var(--bg-tertiary);
-  border-radius: 3px;
-  cursor: pointer;
+  border-radius: 0 0 8px 8px;
   overflow: hidden;
 }
 
-.progress-fill {
+.mini-progress-fill {
   height: 100%;
   background: var(--accent);
-  border-radius: 3px;
   transition: width 0.1s linear;
 }
 
-.controls-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.control-btn {
-  width: 36px;
-  height: 36px;
+.delete-btn {
+  width: 28px;
+  height: 28px;
   border: none;
-  background: var(--bg-tertiary);
-  border-radius: 50%;
+  background: transparent;
   cursor: pointer;
   font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 0.6;
+  flex-shrink: 0;
 }
 
-.control-btn:hover {
-  background: #4a4a4a;
+.delete-btn:hover {
+  opacity: 1;
 }
 
-.play-btn {
-  width: 44px;
-  height: 44px;
-  font-size: 18px;
-}
-
-.time-display {
-  flex: 1;
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-.remove-btn {
-  font-size: 14px;
-}
-
-.no-audio {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
+.no-clips {
   padding: 24px;
+  text-align: center;
   color: var(--text-secondary);
 }
 
@@ -355,6 +396,7 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+  margin-top: auto;
 }
 
 .record-btn:hover {
@@ -368,6 +410,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   padding: 24px;
+  flex: 1;
 }
 
 .recording-indicator {
@@ -409,6 +452,6 @@ onUnmounted(() => {
 }
 
 .stop-btn:hover {
-  background: #4a4a4a;
+  background: var(--border);
 }
 </style>

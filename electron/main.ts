@@ -158,7 +158,7 @@ ipcMain.handle('audio:selectFile', async () => {
   return result.filePaths[0]
 })
 
-ipcMain.handle('audio:copyToStorage', async (_, sourcePath: string, photoId: string) => {
+ipcMain.handle('audio:copyToStorage', async (_, sourcePath: string, photoId: string, clipId: string) => {
   const userDataPath = app.getPath('userData')
   const audioDir = path.join(userDataPath, 'audio')
 
@@ -170,14 +170,14 @@ ipcMain.handle('audio:copyToStorage', async (_, sourcePath: string, photoId: str
   const safePhotoId = photoId.replace(/\//g, '_')
 
   const ext = path.extname(sourcePath)
-  const destPath = path.join(audioDir, `${safePhotoId}${ext}`)
+  const destPath = path.join(audioDir, `${safePhotoId}_${clipId}${ext}`)
 
   fs.copyFileSync(sourcePath, destPath)
 
   return destPath
 })
 
-ipcMain.handle('audio:saveRecording', async (_, photoId: string, base64Audio: string) => {
+ipcMain.handle('audio:saveRecording', async (_, photoId: string, base64Audio: string, clipId: string) => {
   const userDataPath = app.getPath('userData')
   const audioDir = path.join(userDataPath, 'audio')
 
@@ -189,7 +189,7 @@ ipcMain.handle('audio:saveRecording', async (_, photoId: string, base64Audio: st
   const safePhotoId = photoId.replace(/\//g, '_')
 
   // Save as webm (the format from MediaRecorder)
-  const destPath = path.join(audioDir, `${safePhotoId}.webm`)
+  const destPath = path.join(audioDir, `${safePhotoId}_${clipId}.webm`)
   const buffer = Buffer.from(base64Audio, 'base64')
   fs.writeFileSync(destPath, buffer)
 

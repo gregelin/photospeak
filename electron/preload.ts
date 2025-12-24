@@ -35,10 +35,10 @@ const photosAPI = {
 
 const audioAPI = {
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('audio:selectFile'),
-  copyToStorage: (sourcePath: string, photoId: string): Promise<string> =>
-    ipcRenderer.invoke('audio:copyToStorage', sourcePath, photoId),
-  saveRecording: (photoId: string, base64Audio: string): Promise<string> =>
-    ipcRenderer.invoke('audio:saveRecording', photoId, base64Audio),
+  copyToStorage: (sourcePath: string, photoId: string, clipId: string): Promise<string> =>
+    ipcRenderer.invoke('audio:copyToStorage', sourcePath, photoId, clipId),
+  saveRecording: (photoId: string, base64Audio: string, clipId: string): Promise<string> =>
+    ipcRenderer.invoke('audio:saveRecording', photoId, base64Audio, clipId),
   loadFile: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke('audio:loadFile', filePath)
 }

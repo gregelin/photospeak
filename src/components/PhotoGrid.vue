@@ -8,7 +8,8 @@ function openPhoto(photoId: string) {
 }
 
 function hasAudio(photoId: string): boolean {
-  return photosStore.audioAssociations.has(photoId)
+  const clips = photosStore.audioAssociations.get(photoId)
+  return !!clips && clips.length > 0
 }
 </script>
 

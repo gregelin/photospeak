@@ -37,8 +37,8 @@ interface Window {
     }
     audio: {
       selectFile: () => Promise<string | null>
-      copyToStorage: (sourcePath: string, photoId: string) => Promise<string>
-      saveRecording: (photoId: string, base64Audio: string) => Promise<string>
+      copyToStorage: (sourcePath: string, photoId: string, clipId: string) => Promise<string>
+      saveRecording: (photoId: string, base64Audio: string, clipId: string) => Promise<string>
       loadFile: (filePath: string) => Promise<string | null>
     }
     app: {

@@ -21,6 +21,7 @@ export interface PhotoDetail extends Photo {
 }
 
 export interface AudioAssociation {
+  id: string  // Unique clip identifier
   photoId: string
   audioPath: string
   createdAt: number
@@ -33,7 +34,7 @@ export const usePhotosStore = defineStore('photos', () => {
   const photos = ref<Photo[]>([])
   const selectedAlbumId = ref<string | null>(null)
   const selectedPhoto = ref<PhotoDetail | null>(null)
-  const audioAssociations = ref<Map<string, AudioAssociation>>(new Map())
+  const audioAssociations = ref<Map<string, AudioAssociation[]>>(new Map())
   const loadingPhotos = ref(false)
   const loadingDetail = ref(false)
 
@@ -43,7 +44,7 @@ export const usePhotosStore = defineStore('photos', () => {
   )
 
   const selectedPhotoAudio = computed(() =>
-    selectedPhoto.value ? audioAssociations.value.get(selectedPhoto.value.id) : null
+    selectedPhoto.value ? audioAssociations.value.get(selectedPhoto.value.id) || [] : []
   )
 
   // Actions
@@ -90,38 +91,52 @@ export const usePhotosStore = defineStore('photos', () => {
     const sourcePath = await window.electron.audio.selectFile()
     if (!sourcePath) return null
 
-    const storedPath = await window.electron.audio.copyToStorage(sourcePath, photoId)
+    const clipId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    const storedPath = await window.electron.audio.copyToStorage(sourcePath, photoId, clipId)
 
     const association: AudioAssociation = {
+      id: clipId,
       photoId,
       audioPath: storedPath,
       createdAt: Date.now()
     }
 
-    audioAssociations.value.set(photoId, association)
+    const existing = audioAssociations.value.get(photoId) || []
+    audioAssociations.value.set(photoId, [...existing, association])
     saveAssociations()
 
     return association
   }
 
   async function saveRecording(photoId: string, base64Audio: string, durationSecs?: number) {
-    const storedPath = await window.electron.audio.saveRecording(photoId, base64Audio)
+    const clipId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    const storedPath = await window.electron.audio.saveRecording(photoId, base64Audio, clipId)
 
     const association: AudioAssociation = {
+      id: clipId,
       photoId,
       audioPath: storedPath,
       createdAt: Date.now(),
       duration: durationSecs
     }
 
-    audioAssociations.value.set(photoId, association)
+    const existing = audioAssociations.value.get(photoId) || []
+    audioAssociations.value.set(photoId, [...existing, association])
     saveAssociations()
 
     return association
   }
 
-  function removeAudio(photoId: string) {
-    audioAssociations.value.delete(photoId)
+  function removeAudio(photoId: string, clipId: string) {
+    const clips = audioAssociations.value.get(photoId)
+    if (!clips) return
+
+    const filtered = clips.filter(c => c.id !== clipId)
+    if (filtered.length === 0) {
+      audioAssociations.value.delete(photoId)
+    } else {
+      audioAssociations.value.set(photoId, filtered)
+    }
     saveAssociations()
   }
 
@@ -134,8 +149,26 @@ export const usePhotosStore = defineStore('photos', () => {
     try {
       const data = localStorage.getItem('audioAssociations')
       if (data) {
-        const entries = JSON.parse(data) as [string, AudioAssociation][]
-        audioAssociations.value = new Map(entries)
+        const entries = JSON.parse(data) as [string, AudioAssociation | AudioAssociation[]][]
+        const migratedMap = new Map<string, AudioAssociation[]>()
+
+        for (const [photoId, value] of entries) {
+          if (Array.isArray(value)) {
+            // New format: already an array
+            migratedMap.set(photoId, value)
+          } else {
+            // Old format: single object - migrate to array with generated ID
+            const migrated: AudioAssociation = {
+              ...value,
+              id: value.id || `migrated-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+            }
+            migratedMap.set(photoId, [migrated])
+          }
+        }
+
+        audioAssociations.value = migratedMap
+        // Save migrated data
+        saveAssociations()
       }
     } catch (err) {
       console.error('Failed to load associations:', err)
