@@ -181,6 +181,109 @@ func listAlbums() {
     outputJSON(albums)
 }
 
+// Cache directory for thumbnails
+func getCacheDirectory() -> URL {
+    let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    let appCache = cacheDir.appendingPathComponent("photospeak/thumbnails")
+    try? FileManager.default.createDirectory(at: appCache, withIntermediateDirectories: true)
+    return appCache
+}
+
+func getCachedThumbnail(photoId: String) -> String? {
+    let safeId = photoId.replacingOccurrences(of: "/", with: "_")
+    let cachePath = getCacheDirectory().appendingPathComponent("\(safeId).jpg")
+
+    if FileManager.default.fileExists(atPath: cachePath.path),
+       let data = try? Data(contentsOf: cachePath) {
+        return data.base64EncodedString()
+    }
+    return nil
+}
+
+func saveThumbnailToCache(photoId: String, base64: String) {
+    let safeId = photoId.replacingOccurrences(of: "/", with: "_")
+    let cachePath = getCacheDirectory().appendingPathComponent("\(safeId).jpg")
+
+    if let data = Data(base64Encoded: base64) {
+        try? data.write(to: cachePath)
+    }
+}
+
+// Fast metadata-only listing (no thumbnails)
+func listPhotosMeta(albumId: String? = nil) {
+    guard checkAuthorization() else {
+        outputError("Photos access not authorized")
+        exit(1)
+    }
+
+    let fetchOptions = PHFetchOptions()
+    fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+    fetchOptions.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
+    fetchOptions.fetchLimit = 500
+
+    let assets: PHFetchResult<PHAsset>
+
+    if let albumId = albumId {
+        let collections = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumId], options: nil)
+        if let collection = collections.firstObject {
+            assets = PHAsset.fetchAssets(in: collection, options: fetchOptions)
+        } else {
+            outputError("Album not found")
+            exit(1)
+        }
+    } else {
+        assets = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+    }
+
+    var photos: [PhotoInfo] = []
+
+    assets.enumerateObjects { asset, index, stop in
+        let creationDate = asset.creationDate.map { dateFormatter.string(from: $0) } ?? ""
+
+        photos.append(PhotoInfo(
+            id: asset.localIdentifier,
+            filename: asset.originalFilename ?? "Unknown",
+            creationDate: creationDate,
+            width: asset.pixelWidth,
+            height: asset.pixelHeight,
+            thumbnailBase64: nil  // No thumbnail - fast!
+        ))
+    }
+
+    outputJSON(photos)
+}
+
+// Batch thumbnail loading with caching
+func getThumbnails(photoIds: [String]) {
+    guard checkAuthorization() else {
+        outputError("Photos access not authorized")
+        exit(1)
+    }
+
+    var result: [String: String] = [:]
+    let thumbnailSize = CGSize(width: 300, height: 300)
+
+    for photoId in photoIds {
+        // Check cache first
+        if let cached = getCachedThumbnail(photoId: photoId) {
+            result[photoId] = cached
+            continue
+        }
+
+        // Generate thumbnail
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: [photoId], options: nil)
+        if let asset = assets.firstObject,
+           let image = requestImage(for: asset, targetSize: thumbnailSize),
+           let base64 = imageToBase64(image, maxSize: 300) {
+            result[photoId] = base64
+            saveThumbnailToCache(photoId: photoId, base64: base64)
+        }
+    }
+
+    outputJSON(result)
+}
+
+// Legacy: full listing with thumbnails (kept for compatibility)
 func listPhotos(albumId: String? = nil) {
     guard checkAuthorization() else {
         outputError("Photos access not authorized")
@@ -190,7 +293,7 @@ func listPhotos(albumId: String? = nil) {
     let fetchOptions = PHFetchOptions()
     fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
     fetchOptions.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
-    fetchOptions.fetchLimit = 200 // Limit for performance
+    fetchOptions.fetchLimit = 200
 
     let assets: PHFetchResult<PHAsset>
 
@@ -212,10 +315,15 @@ func listPhotos(albumId: String? = nil) {
     assets.enumerateObjects { asset, index, stop in
         let creationDate = asset.creationDate.map { dateFormatter.string(from: $0) } ?? ""
 
-        // Get thumbnail
-        var thumbnailBase64: String? = nil
-        if let image = requestImage(for: asset, targetSize: thumbnailSize) {
-            thumbnailBase64 = imageToBase64(image, maxSize: 300)
+        // Check cache first, then generate
+        var thumbnailBase64: String? = getCachedThumbnail(photoId: asset.localIdentifier)
+
+        if thumbnailBase64 == nil {
+            if let image = requestImage(for: asset, targetSize: thumbnailSize),
+               let base64 = imageToBase64(image, maxSize: 300) {
+                thumbnailBase64 = base64
+                saveThumbnailToCache(photoId: asset.localIdentifier, base64: base64)
+            }
         }
 
         photos.append(PhotoInfo(
@@ -311,10 +419,12 @@ guard args.count >= 2 else {
       PhotoSpeakHelper <command> [arguments]
 
     Commands:
-      list-albums              List all photo albums
-      list-photos [album-id]   List photos (optionally in a specific album)
-      get-photo <photo-id>     Get full-size photo as base64
-      get-thumbnail <photo-id> Get thumbnail as base64
+      list-albums                List all photo albums
+      list-photos [album-id]     List photos with thumbnails (slower, cached)
+      list-photos-meta [album]   List photos metadata only (fast)
+      get-thumbnails <id1,id2>   Get thumbnails for photo IDs (comma-separated)
+      get-photo <photo-id>       Get full-size photo as base64
+      get-thumbnail <photo-id>   Get single thumbnail as base64
     """
     print(help)
     exit(0)
@@ -329,6 +439,18 @@ case "list-albums":
 case "list-photos":
     let albumId = args.count > 2 ? args[2] : nil
     listPhotos(albumId: albumId)
+
+case "list-photos-meta":
+    let albumId = args.count > 2 ? args[2] : nil
+    listPhotosMeta(albumId: albumId)
+
+case "get-thumbnails":
+    guard args.count > 2 else {
+        outputError("Photo IDs required (comma-separated)")
+        exit(1)
+    }
+    let ids = args[2].split(separator: ",").map { String($0) }
+    getThumbnails(photoIds: ids)
 
 case "get-photo":
     guard args.count > 2 else {

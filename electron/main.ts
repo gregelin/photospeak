@@ -76,7 +76,7 @@ function createWindow() {
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
-    mainWindow.webContents.openDevTools()
+    // Uncomment to auto-open dev tools: mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
@@ -98,6 +98,28 @@ ipcMain.handle('photos:getPhotos', async (_, albumId?: string) => {
     return await runHelper('list-photos', args)
   } catch (err: any) {
     console.error('Failed to get photos:', err)
+    throw err
+  }
+})
+
+// Fast metadata-only listing (no thumbnails)
+ipcMain.handle('photos:getPhotosMeta', async (_, albumId?: string) => {
+  try {
+    const args = albumId ? [albumId] : []
+    return await runHelper('list-photos-meta', args)
+  } catch (err: any) {
+    console.error('Failed to get photos meta:', err)
+    throw err
+  }
+})
+
+// Batch thumbnail loading
+ipcMain.handle('photos:getThumbnails', async (_, photoIds: string[]) => {
+  try {
+    const idsArg = photoIds.join(',')
+    return await runHelper('get-thumbnails', [idsArg])
+  } catch (err: any) {
+    console.error('Failed to get thumbnails:', err)
     throw err
   }
 })

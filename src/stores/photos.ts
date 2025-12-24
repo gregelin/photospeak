@@ -60,6 +60,7 @@ export const usePhotosStore = defineStore('photos', () => {
     loadingPhotos.value = true
     try {
       selectedAlbumId.value = albumId || null
+      // Use cached thumbnail loading (fast after first load)
       photos.value = await window.electron.photos.getPhotos(albumId)
     } catch (err) {
       console.error('Failed to load photos:', err)

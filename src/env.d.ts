@@ -30,6 +30,8 @@ interface Window {
     photos: {
       getAlbums: () => Promise<Album[]>
       getPhotos: (albumId?: string) => Promise<Photo[]>
+      getPhotosMeta: (albumId?: string) => Promise<Photo[]>
+      getThumbnails: (photoIds: string[]) => Promise<Record<string, string>>
       getPhoto: (photoId: string) => Promise<PhotoDetail>
       getThumbnail: (photoId: string) => Promise<string>
     }

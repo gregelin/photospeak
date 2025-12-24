@@ -27,6 +27,8 @@ export interface PhotoDetail {
 const photosAPI = {
   getAlbums: (): Promise<Album[]> => ipcRenderer.invoke('photos:getAlbums'),
   getPhotos: (albumId?: string): Promise<Photo[]> => ipcRenderer.invoke('photos:getPhotos', albumId),
+  getPhotosMeta: (albumId?: string): Promise<Photo[]> => ipcRenderer.invoke('photos:getPhotosMeta', albumId),
+  getThumbnails: (photoIds: string[]): Promise<Record<string, string>> => ipcRenderer.invoke('photos:getThumbnails', photoIds),
   getPhoto: (photoId: string): Promise<PhotoDetail> => ipcRenderer.invoke('photos:getPhoto', photoId),
   getThumbnail: (photoId: string): Promise<string> => ipcRenderer.invoke('photos:getThumbnail', photoId)
 }

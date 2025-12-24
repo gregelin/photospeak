@@ -39,10 +39,9 @@ function hasAudio(photoId: string): boolean {
             v-if="photo.thumbnailBase64"
             :src="`data:image/jpeg;base64,${photo.thumbnailBase64}`"
             :alt="photo.filename"
-            loading="lazy"
           />
-          <div v-else class="placeholder">
-            <span>📷</span>
+          <div v-else class="placeholder loading">
+            <span class="spinner"></span>
           </div>
           <div v-if="hasAudio(photo.id)" class="audio-badge" title="Has audio">
             🔊
@@ -140,6 +139,23 @@ function hasAudio(photoId: string): boolean {
   justify-content: center;
   font-size: 32px;
   color: var(--text-secondary);
+}
+
+.placeholder.loading {
+  background: var(--bg-tertiary);
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--bg-secondary);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .audio-badge {

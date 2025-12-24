@@ -25,7 +25,8 @@ function goBack() {
       <!-- Image view -->
       <div class="image-container">
         <div v-if="photosStore.loadingDetail" class="loading">
-          Loading...
+          <span class="spinner"></span>
+          <span>Loading photo...</span>
         </div>
         <img
           v-else-if="photosStore.selectedPhoto.imageBase64"
@@ -103,6 +104,23 @@ function goBack() {
 }
 
 .loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
   color: var(--text-secondary);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--bg-secondary);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
